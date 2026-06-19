@@ -26,7 +26,7 @@ with col1:
     st.image("assets/logo.png", width=150)
 
 with col2:
-    st.title("RajniAI: AI-Powered Research Assistant")
+    st.title("ResearchPilot AI: Intelligent Research Analysis and Presentation Assistant")
     st.caption("Summaries • PPT • Viva • References • Chat Assistant")
 
 # ---------- SESSION STATE INIT ----------
