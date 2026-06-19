@@ -1,36 +1,176 @@
-"""Loads a PDF, chunks it, embeds with a local sentence-transformer,
-and stores it in an in-memory Chroma collection for retrieval."""
-from typing import List
+"""
+RAG Store
+Loads PDF, creates ChromaDB vector store,
+and provides smart retrieval for paper QA.
+"""
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
-def build_vectorstore(pdf_path: str) -> Chroma:
+# --------------------------------------------------
+# SECTION DETECTION
+# --------------------------------------------------
+SECTION_KEYWORDS = {
+    "abstract": [
+        "abstract"
+    ],
+
+    "methodology": [
+        "method",
+        "methodology",
+        "approach",
+        "model",
+        "architecture",
+        "framework",
+        "algorithm"
+    ],
+
+    "results": [
+        "result",
+        "results",
+        "evaluation",
+        "accuracy",
+        "experiment",
+        "performance"
+    ],
+
+    "references": [
+        "reference",
+        "references",
+        "bibliography"
+    ]
+}
+
+
+# --------------------------------------------------
+# BUILD VECTOR STORE
+# --------------------------------------------------
+def build_vectorstore(pdf_path: str):
+
     loader = PyPDFLoader(pdf_path)
+
     docs = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1200, chunk_overlap=150
+        chunk_size=700,
+        chunk_overlap=80
     )
+
     chunks = splitter.split_documents(docs)
 
-    embeddings = SentenceTransformerEmbeddings(
-        model_name="all-MiniLM-L6-v2"
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
-    # In-memory Chroma (no persistence) -> easier to ship
-    store = Chroma.from_documents(chunks, embedding=embeddings)
+
+    # Tag chunks with section metadata
+    for chunk in chunks:
+
+        text = chunk.page_content.lower()
+
+        chunk.metadata["section"] = "general"
+
+        for section, keywords in SECTION_KEYWORDS.items():
+
+            if any(keyword in text for keyword in keywords):
+
+                chunk.metadata["section"] = section
+                break
+
+    store = Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings
+    )
+
     return store
 
 
-def retrieve_context(store: Chroma, query: str, k: int = 6) -> str:
-    results = store.similarity_search(query, k=k)
-    return "\n\n---\n\n".join(d.page_content for d in results)
+# --------------------------------------------------
+# SMART RETRIEVAL
+# --------------------------------------------------
+def retrieve_context(
+    store,
+    query: str,
+    k: int = 8,
+    section: str = None
+):
+
+    try:
+
+        # Section-aware retrieval
+        if section:
+
+            results = store.similarity_search(
+                query,
+                k=k,
+                filter={"section": section}
+            )
+
+            # fallback if nothing found
+            if not results:
+
+                results = store.similarity_search(
+                    query,
+                    k=k
+                )
+
+        else:
+
+            results = store.similarity_search(
+                query,
+                k=k
+            )
+
+        context = "\n\n".join(
+            doc.page_content[:700]
+            for doc in results
+        )
+
+        # Prevent Groq/Gemini token overflow
+        return context[:10000]
+
+    except Exception as e:
+
+        print("Retrieval Error:", e)
+
+        return ""
 
 
-def full_text(store: Chroma, max_chars: int = 18000) -> str:
-    """Return concatenated text of all chunks (truncated)."""
-    all_docs = store.get()["documents"]
-    text = "\n\n".join(all_docs)
-    return text[:max_chars]
+# --------------------------------------------------
+# FULL PAPER TEXT
+# --------------------------------------------------
+def full_text(
+    store,
+    max_chars: int = 10000
+):
+
+    try:
+
+        docs = store.get()["documents"]
+
+        text = "\n\n".join(docs)
+
+        return text[:max_chars]
+
+    except Exception:
+
+        return ""
+
+
+# --------------------------------------------------
+# SECTION RETRIEVAL HELPER
+# --------------------------------------------------
+def retrieve_section(
+    store,
+    section_name: str,
+    k: int = 10
+):
+
+    return retrieve_context(
+        store=store,
+        query=section_name,
+        k=k,
+        section=section_name
+    )

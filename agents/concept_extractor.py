@@ -1,9 +1,9 @@
 """Concept Extractor — pulls contributions, methods, results as JSON."""
+from itertools import chain
 import json, re
 from langchain_core.prompts import ChatPromptTemplate
 from .llm_factory import get_llm
-from .rag_store import full_text
-
+from .rag_store import retrieve_context
 PROMPT = ChatPromptTemplate.from_template(
     """Extract the key academic concepts from this research paper.
 
@@ -40,7 +40,19 @@ def _parse_json(text: str) -> dict:
 
 
 def extract_concepts(store) -> dict:
+
     llm = get_llm(temperature=0.1)
+
     chain = PROMPT | llm
-    resp = chain.invoke({"text": full_text(store)})
+
+    context = retrieve_context(
+        store,
+        "title authors contributions methodology results keywords",
+        k=4
+    )
+
+    resp = chain.invoke({
+        "text": context
+    })
+
     return _parse_json(resp.content)

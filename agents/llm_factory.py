@@ -11,10 +11,12 @@ def get_llm(temperature: float = 0.3):
         return ChatGroq(
             model="llama-3.3-70b-versatile",
             temperature=temperature,
-            api_key=os.getenv("GROQ_API_KEY"),
+            groq_api_key=os.getenv("GROQ_API_KEY"),
         )
     # default: gemini
     from langchain_google_genai import ChatGoogleGenerativeAI
+    
+    
     return ChatGoogleGenerativeAI(
         model="gemini-2.0-flash",
         temperature=temperature,
